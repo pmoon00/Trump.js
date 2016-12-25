@@ -1,13 +1,17 @@
 /******* Notes for Trump *******/
 /*
-	Currently has SAL.Template baked in.  Needs to be modular and take in any rendering library.
+	- Currently has SAL.Template baked in.  Needs to be modular and take in any rendering library.
+	- Return false from event functions to stop propagation.
+
+	TODO:
+	- Maybe only mount delegate event handler to document level instead of mounting element.
 */
 /******* Notes for Trump *******/
 (function () {
 	var _trump = {};
-	var _eventListeners = {};
 	var _eventHandlers = {};
-	var _delegateEventHandlers = {};
+	var _delegateEventHandlerTypes = {};
+	var _mountedElementData = {};
 	var LOG_MESSAGE_PREFIX = "Trump Says:";
 	var SETTINGS = {
 		"eventPrefix": "trump",
@@ -66,17 +70,46 @@
 		var dd = new diffDOM();
 
 		templateFrag.innerHTML = renderedTemplate;
-		applyEvents(templateFrag, templateData.eventHandlers, mountElementID);
+		applyEvents(templateFrag, templateData.eventHandlers);
 
 		var difference = dd.diff(el, templateFrag);
 
+		cleanEventsFromDifference(difference);
 		log.debug(LOG_MESSAGE_PREFIX, "Differences:", difference);
 		dd.apply(el, difference);
 		log.debug(LOG_MESSAGE_PREFIX, "Differences applied to DOM.");
 		return true;
 	}
+	function cleanEventsFromDifference(difference) {
+		if (!difference) {
+			return false;
+		}
+
+		var eventUuidAttributeName = SETTINGS.eventPrefix + "-event-uuid";
+
+		for (var i = 0, l = difference.length; i < l; i++) {
+			var currentDifference = difference[i];
+			
+			switch (currentDifference.action) {
+				case "removeElement":
+					var elementBeingRemoved = currentDifference.element;
+
+					if (elementBeingRemoved && elementBeingRemoved.attributes[eventUuidAttributeName]) {
+						removeEvent(elementBeingRemoved.attributes[eventUuidAttributeName]);
+					}
+					break;
+				case "modifyAttribute":
+					if (difference.name == eventUuidAttributeName) {
+						removeEvent(difference.oldValue);
+					}
+					break;
+			}
+		}
+
+		return true;
+	}
 	//event handlers
-	function applyEvents(frag, eventHandlers, mountElementID) {
+	function applyEvents(frag, eventHandlers) {
 		var eventAttributeName = SETTINGS.eventPrefix + "-event";
 		var elsThatNeedEventBinding = frag.querySelectorAll("[" + eventAttributeName + "]");
 		var eventAttributeValueRegex = /\w+\:\w+/;
@@ -95,7 +128,7 @@
 
 				if (foundEventHandler && typeof (foundEventHandler) == "function") {
 					eventUuid = uuid();
-					addEventHandler(eventUuid, eventAttributeData.eventType, foundEventHandler, mountElementID);
+					addEventHandler(eventUuid, eventAttributeData.eventType, foundEventHandler);
 					el.setAttribute(eventAttributeName + "-uuid", eventUuid);
 				} else {
 					log.warn(LOG_MESSAGE_PREFIX, "Could not find event handler", eventAttributeData.eventFnName, "within event handlers that were passed in.");
@@ -107,6 +140,12 @@
 			el.removeAttribute(eventAttributeName);
 		}
 	}
+	function removeEvent(eventUuid) {
+		if (_eventHandlers[eventUuid]) {
+			log.debug(LOG_MESSAGE_PREFIX, "Removing event with UUID", eventUuid, _eventHandlers[eventUuid]);
+			delete _eventHandlers[eventUuid];
+		}
+	}
 	function getEventAttributeData(eventAttributeValue) {
 		var eventAttributeValueDetails = eventAttributeValue.split(":");
 		var eventFnType = eventAttributeValueDetails[0] || "";
@@ -114,45 +153,53 @@
 
 		return { "eventType": eventFnType.trim().toLowerCase(), "eventFnName": eventFnName.trim() };
 	}
-	function addEventHandler(eventUuid, eventType, eventHandlerFn, mountElementID) {
+	function addEventHandler(eventUuid, eventType, eventHandlerFn) {
 		if (_eventHandlers[eventUuid]) {
 			log.error(LOG_MESSAGE_PREFIX, "Another event handler with the same UUID was found, fatal failure.  Event did not bind.", eventUuid);
 			return false;
 		}
 
-		setupDelegateEventHandler(mountElementID, eventType);
-		_eventListeners[mountElementID] = _eventListeners[mountElementID] || {};
-		_eventListeners[mountElementID][eventType] =  _eventListeners[mountElementID][eventType] || {};
-		_eventListeners[mountElementID][eventType][eventUuid] = true;
-		_eventHandlers[eventUuid] = eventHandlerFn;
+		setupDelegateEventHandler(eventType);
+		_eventHandlers[eventUuid] = { "eventType": eventType, "eventHandlerFn": eventHandlerFn };
 		return true;
 	}
-	function setupDelegateEventHandler(mountElementID, eventType) {
-		_delegateEventHandlers[mountElementID] = _delegateEventHandlers[mountElementID] || {};
-
-		if (!_delegateEventHandlers[mountElementID][eventType]) {
-			log.debug(LOG_MESSAGE_PREFIX, "No delegate event handler was found for element with ID", mountElementID, "and of type", eventType, "creating.");
-			_delegateEventHandlers[mountElementID][eventType] = createEventListener(mountElementID, eventType);
+	function setupDelegateEventHandler(eventType) {
+		if (!_delegateEventHandlerTypes[eventType]) {
+			log.debug(LOG_MESSAGE_PREFIX, "No delegate event handler was found for type", eventType, "creating one now.");
+			_delegateEventHandlerTypes[eventType] = createEventListener(eventType);
 		}
 	}
-	function createEventListener(mountElementID, eventType) {
-		document.getElementById(mountElementID).addEventListener(eventType, function (e) {
-			delegateEventHandler(e, eventType);
-		});
-		log.debug(LOG_MESSAGE_PREFIX, "Created delegate event handler for element with ID", mountElementID, "and of type", eventType);
+	function createEventListener(eventType) {
+		document.addEventListener(eventType, delegateEventHandler);
+		log.debug(LOG_MESSAGE_PREFIX, "Created delegate event handler for type", eventType);
 		return true;
 	}
-	function delegateEventHandler(e, eventType) {
+	function delegateEventHandler(e) {
 		var eventUuidAttributeName = SETTINGS.eventPrefix + "-event-uuid";
-		var targetElement = e.target;
-		var eventUuidAttribute = e.target.attributes[eventUuidAttributeName];
+		var currentElement = e.target;
+		var stopPropagation = false;
 
-		log.debug(LOG_MESSAGE_PREFIX, "Delegate handler invoked.  Target:", targetElement, "Event Type:", eventType);
+		while (currentElement != null && (stopPropagation === false || stopPropagation === undefined)) {
+			var eventUuidAttribute = currentElement.attributes[eventUuidAttributeName];
 
-		if (eventUuidAttribute && eventUuidAttribute.value) {
-			log.debug(LOG_MESSAGE_PREFIX, "Event handler found and invoked.", "Event Handler:", _eventHandlers[eventUuidAttribute.value]);
-			_eventHandlers[eventUuidAttribute.value].call({}, [e]);
+			if (eventUuidAttribute && eventUuidAttribute.value) {
+				stopPropagation = findEventHandlerAndExecute(eventUuidAttribute.value, e);
+			}
+
+			currentElement = currentElement.parentElement;
 		}
+	}
+	function findEventHandlerAndExecute(eventUuid, eventArgs) {
+		var currentEventHandler = _eventHandlers[eventUuid];
+
+		if (!currentEventHandler || currentEventHandler.eventType != eventArgs.type) {
+			return false;
+		}
+
+		var stopPropagation = !currentEventHandler.eventHandlerFn.call({}, eventArgs);
+
+		log.debug(LOG_MESSAGE_PREFIX, "Event handler found and invoked.", "Event Handler:", currentEventHandler);
+		return stopPropagation;
 	}
 
 	//utility functions
