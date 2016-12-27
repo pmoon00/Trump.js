@@ -1,5 +1,6 @@
 (function () {
 	var _app = window.app = {};
+	var _counterValue = 0;
 
 	//private functions
 	function init() {
@@ -21,7 +22,7 @@
 
 		Trump.applyToDOM("mainBody", "testing", {
 			"data": {
-				"counterValue": 0
+				"counterValue": _counterValue
 			},
 			"eventHandlers": { 
 				"wrapper_click": wrapper_click,
@@ -38,7 +39,7 @@
 	function incrementMe_click(e) {
 		Trump.applyToDOM("mainBody", "testing1", {
 			"data": {
-				"counterValue": 0
+				"counterValue": ++_counterValue
 			},
 			"eventHandlers": { 
 				"wrapper_click": wrapper_click,

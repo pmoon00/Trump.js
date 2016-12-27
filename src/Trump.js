@@ -4,7 +4,8 @@
 	- Return false from event functions to stop propagation.
 
 	TODO:
-	- Maybe only mount delegate event handler to document level instead of mounting element.
+	- State for preventing event handling rebinding when it's the same template.  i.e the event uuid shouldn't change if it's already the same.
+	- State for rerender.
 */
 /******* Notes for Trump *******/
 (function () {
@@ -92,15 +93,11 @@
 			
 			switch (currentDifference.action) {
 				case "removeElement":
-					var elementBeingRemoved = currentDifference.element;
-
-					if (elementBeingRemoved && elementBeingRemoved.attributes[eventUuidAttributeName]) {
-						removeEvent(elementBeingRemoved.attributes[eventUuidAttributeName]);
-					}
+					cleanEventsFromDifference_removeElement(currentDifference, eventUuidAttributeName);
 					break;
 				case "modifyAttribute":
-					if (difference.name == eventUuidAttributeName) {
-						removeEvent(difference.oldValue);
+					if (currentDifference.name == eventUuidAttributeName) {
+						removeEvent(currentDifference.oldValue);
 					}
 					break;
 			}
@@ -108,6 +105,35 @@
 
 		return true;
 	}
+	function cleanEventsFromDifference_removeElement(currentDifference, eventUuidAttributeName) {
+		var elementBeingRemoved = currentDifference.element;
+
+		if (elementBeingRemoved) {
+			var eventUuidsToRemove = searchThroughChildNodesAndFindOnesWithEventUuids([elementBeingRemoved], eventUuidAttributeName);
+
+			for (i = 0, l = eventUuidsToRemove.length; i < l; i++) {
+				removeEvent(eventUuidsToRemove[i]);
+			}
+		}
+	}
+	function searchThroughChildNodesAndFindOnesWithEventUuids(nodes, eventUuidAttributeName) {
+		var uuids = [];
+
+		for (var i = 0, l = nodes.length; i < l; i++) {
+			var currentNode = nodes[i];
+
+			if (currentNode.attributes && currentNode.attributes[eventUuidAttributeName]) {
+				uuids.push(currentNode.attributes[eventUuidAttributeName]);
+			}
+
+			if (currentNode.childNodes && currentNode.childNodes.length > 0) {
+				uuids = uuids.concat(searchThroughChildNodesAndFindOnesWithEventUuids(currentNode.childNodes, eventUuidAttributeName));
+			}
+		}
+
+		return uuids;
+	}
+
 	//event handlers
 	function applyEvents(frag, eventHandlers) {
 		var eventAttributeName = SETTINGS.eventPrefix + "-event";

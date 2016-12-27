@@ -2,6 +2,15 @@
 	<h1>This is my template</h1>
 	<div trump-event="mouseup:incrementMe_mouseup">
 		<input type="button" trump-event="click:incrementMe_click" value="Increment Me" />
+		<div>
+			<input type="button" trump-event="click:incrementMe_click" value="Increment Me" />
+			<div>
+				<input type="button" trump-event="click:incrementMe_click" value="Increment Me" />
+				<div>
+					<input type="button" trump-event="click:incrementMe_click" value="Increment Me" />
+				</div>
+			</div>
+		</div>
 	</div>
 	<p>Counter value: <%=counterValue %></p>
 	<div style="width: 100px;height: 100px;background-color: red;" trump-event="mouseover:test_mouseover">&nbsp;</div>
