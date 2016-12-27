@@ -5,6 +5,7 @@
 
 	TODO:
 	- State for preventing event handling rebinding when it's the same template.  i.e the event uuid shouldn't change if it's already the same.
+		- Ran into difficulties as the events are applied before the cleanup from differences.
 	- State for rerender.
 */
 /******* Notes for Trump *******/
@@ -15,12 +16,25 @@
 	var _mountedElementData = {};
 	var LOG_MESSAGE_PREFIX = "Trump Says:";
 	var SETTINGS = {
-		"eventPrefix": "trump",
+		"prefix": "trump",
 		"renderFn": function () {}
 	};
 
 	//private functions
 	function init(o) {
+		if (!log) {
+			var emptyFn = function () {};
+
+			window.log = {
+				"trace": emptyFn,
+				"warn": emptyFn,
+				"debug": emptyFn,
+				"error": emptyFn,
+				"setLevel": emptyFn,
+				"levels": {}
+			};
+		}
+
 		log.trace(LOG_MESSAGE_PREFIX, "Initialised");
 		o = o || {};
 
@@ -41,11 +55,18 @@
 			log.setLevel(o.logLevel);
 		}
 
+		if (o.prefix && o.prefix.trim()) {
+			SETTINGS.prefix = o.prefix;
+		}
+
 		// if (!o.renderFn || typeof (o.renderFn) != "function") {
 		// 	consoleError("Did not initialise as an invalid render function was provided.");
 		// 	return false;
 		// }
 
+		SETTINGS.eventAttributeName = SETTINGS.prefix + "-event";
+		SETTINGS.eventUuidAttributeName = SETTINGS.eventAttributeName + "-uuid";
+		SETTINGS.mountElementUuidAttributeName = SETTINGS.prefix + "-mount-uuid";
 		return true;
 	}
 	function applyToDOM(mountElementID, templateID, templateData) {
@@ -65,39 +86,86 @@
 			return false;
 		}
 
-		var el = document.getElementById(mountElementID);
-		var renderedTemplate = SAL.Template.render(templateID, templateData.data || {});
-		var templateFrag = el.cloneNode();
-		var dd = new diffDOM();
+		var elMount = document.getElementById(mountElementID);
 
-		templateFrag.innerHTML = renderedTemplate;
-		applyEvents(templateFrag, templateData.eventHandlers);
-
-		var difference = dd.diff(el, templateFrag);
-
-		cleanEventsFromDifference(difference);
-		log.debug(LOG_MESSAGE_PREFIX, "Differences:", difference);
-		dd.apply(el, difference);
-		log.debug(LOG_MESSAGE_PREFIX, "Differences applied to DOM.");
-		return true;
-	}
-	function cleanEventsFromDifference(difference) {
-		if (!difference) {
+		if (!elMount) {
+			log.error(LOG_MESSAGE_PREFIX, "Could not find mount element with ID", mountElementID);
 			return false;
 		}
 
-		var eventUuidAttributeName = SETTINGS.eventPrefix + "-event-uuid";
+		var mountElementUuidAttributeName = SETTINGS.mountElementUuidAttributeName;
+		var currentElMountUuid = elMount.attributes[mountElementUuidAttributeName];
+
+		//NOT TOTALLY HAPPY WITH THIS
+		if (currentElMountUuid && _mountedElementData[elMountUuid]) {
+			delete _mountedElementData[elMountUuid];
+		}
+
+		var elMountUuid = uuid();
+		var mountedElementData = _mountedElementData[elMountUuid] = {
+			"mountElementID": mountElementID,
+			"templateID": templateID,
+			"templateData": templateData
+		};
+
+		elMount.setAttribute(mountElementUuidAttributeName, elMountUuid);
+
+		var templateFragHTML = SAL.Template.render(templateID, mountedElementData.templateData.data || {});
+
+		applyChangesToDOM(elMount, templateFragHTML, mountedElementData.templateData.eventHandlers, elMountUuid);
+		return { 
+			"update": function (newData) {
+				updateMountedComponent(elMountUuid, newData);
+			}
+		};
+	}
+	function updateMountedComponent(mountedElementUuid, newData) {
+		if (!mountedElementUuid) {
+			return false;
+		}
+
+		var mountedElementData = _mountedElementData[mountedElementUuid];
+
+		if (!mountedElementData) {
+			log.debug(LOG_MESSAGE_PREFIX, "No data was found for any element with UUID", mountedElementUuid);
+			return false;
+		}
+		
+		var elMount = document.getElementById(mountedElementData.mountElementID);
+
+		if (!elMount) {
+			log.error(LOG_MESSAGE_PREFIX, "Could not find mount element with ID", mountedElementData.mountElementID);
+			return false;
+		}
+
+		newData = newData || {};
+		mountedElementData.templateData.data = mergeObjects(mountedElementData.templateData.data, newData.data);
+		mountedElementData.templateData.eventHandlers = mergeObjects(mountedElementData.templateData.eventHandlers, newData.eventHandlers);
+		
+		var templateFragHTML = SAL.Template.render(mountedElementData.templateID, mountedElementData.templateData.data || {});
+
+		applyChangesToDOM(elMount, templateFragHTML, mountedElementData.templateData.eventHandlers, mountedElementUuid);
+		return true;
+	}
+	function cleanUpFromDifferences(difference) {
+		if (!difference) {
+			return false;
+		}
 
 		for (var i = 0, l = difference.length; i < l; i++) {
 			var currentDifference = difference[i];
 			
 			switch (currentDifference.action) {
 				case "removeElement":
-					cleanEventsFromDifference_removeElement(currentDifference, eventUuidAttributeName);
+					cleanEventsFromDifference_removeElement(currentDifference);
 					break;
 				case "modifyAttribute":
-					if (currentDifference.name == eventUuidAttributeName) {
+					if (currentDifference.name == SETTINGS.eventUuidAttributeName) {
 						removeEvent(currentDifference.oldValue);
+					}
+
+					if (currentDifference.name == SETTINGS.mountElementUuidAttributeName && _mountedElementData[currentDifference.oldValue]) {
+						delete _mountedElementData[currentMountElementUuid];
 					}
 					break;
 			}
@@ -105,38 +173,61 @@
 
 		return true;
 	}
-	function cleanEventsFromDifference_removeElement(currentDifference, eventUuidAttributeName) {
+	function cleanEventsFromDifference_removeElement(currentDifference) {
 		var elementBeingRemoved = currentDifference.element;
 
 		if (elementBeingRemoved) {
-			var eventUuidsToRemove = searchThroughChildNodesAndFindOnesWithEventUuids([elementBeingRemoved], eventUuidAttributeName);
+			var eventUuidsToRemove = searchThroughChildNodesAndFindOnesWithAttribute([elementBeingRemoved], SETTINGS.eventUuidAttributeName);
+			var mountElementUuidsToRemove = searchThroughChildNodesAndFindOnesWithAttribute([elementBeingRemoved], SETTINGS.mountElementUuidAttributeName);
 
-			for (i = 0, l = eventUuidsToRemove.length; i < l; i++) {
+			for (var i = 0, l = eventUuidsToRemove.length; i < l; i++) {
 				removeEvent(eventUuidsToRemove[i]);
+			}
+
+			for (i = 0, l = mountElementUuidsToRemove.length; i < l; i++) {
+				var currentMountElementUuid = mountElementUuidsToRemove[i];
+
+				if (_mountedElementData[currentMountElementUuid]) {
+					delete _mountedElementData[currentMountElementUuid];
+				}
 			}
 		}
 	}
-	function searchThroughChildNodesAndFindOnesWithEventUuids(nodes, eventUuidAttributeName) {
+	function searchThroughChildNodesAndFindOnesWithAttribute(nodes, attributeName) {
 		var uuids = [];
 
 		for (var i = 0, l = nodes.length; i < l; i++) {
 			var currentNode = nodes[i];
 
-			if (currentNode.attributes && currentNode.attributes[eventUuidAttributeName]) {
-				uuids.push(currentNode.attributes[eventUuidAttributeName]);
+			if (currentNode.attributes && currentNode.attributes[attributeName]) {
+				uuids.push(currentNode.attributes[attributeName]);
 			}
 
 			if (currentNode.childNodes && currentNode.childNodes.length > 0) {
-				uuids = uuids.concat(searchThroughChildNodesAndFindOnesWithEventUuids(currentNode.childNodes, eventUuidAttributeName));
+				uuids = uuids.concat(searchThroughChildNodesAndFindOnesWithAttribute(currentNode.childNodes, attributeName));
 			}
 		}
 
 		return uuids;
 	}
+	function applyChangesToDOM(elMount, fragHTML, eventHandlers, elMountUuid) {
+		var templateFrag = elMount.cloneNode();
+		var dd = new diffDOM();
+
+		templateFrag.innerHTML = fragHTML;
+		applyEvents(templateFrag, eventHandlers, elMountUuid);
+
+		var difference = dd.diff(elMount, templateFrag);
+
+		cleanUpFromDifferences(difference);
+		log.debug(LOG_MESSAGE_PREFIX, "Differences:", difference);
+		dd.apply(elMount, difference);
+		log.debug(LOG_MESSAGE_PREFIX, "Differences applied to DOM.");
+	}
 
 	//event handlers
-	function applyEvents(frag, eventHandlers) {
-		var eventAttributeName = SETTINGS.eventPrefix + "-event";
+	function applyEvents(frag, eventHandlers, elMountUuid) {
+		var eventAttributeName = SETTINGS.eventAttributeName;
 		var elsThatNeedEventBinding = frag.querySelectorAll("[" + eventAttributeName + "]");
 		var eventAttributeValueRegex = /\w+\:\w+/;
 
@@ -153,9 +244,10 @@
 				var eventUuid = null;
 
 				if (foundEventHandler && typeof (foundEventHandler) == "function") {
-					eventUuid = uuid();
-					addEventHandler(eventUuid, eventAttributeData.eventType, foundEventHandler);
-					el.setAttribute(eventAttributeName + "-uuid", eventUuid);
+					eventUuid = /*foundEventHandler.uuid ||*/ uuid();
+					addEventHandler(eventUuid, eventAttributeData.eventType, foundEventHandler, elMountUuid);
+					el.setAttribute(SETTINGS.eventUuidAttributeName, eventUuid);
+					//foundEventHandler.uuid = eventUuid;
 				} else {
 					log.warn(LOG_MESSAGE_PREFIX, "Could not find event handler", eventAttributeData.eventFnName, "within event handlers that were passed in.");
 				}
@@ -179,14 +271,14 @@
 
 		return { "eventType": eventFnType.trim().toLowerCase(), "eventFnName": eventFnName.trim() };
 	}
-	function addEventHandler(eventUuid, eventType, eventHandlerFn) {
+	function addEventHandler(eventUuid, eventType, eventHandlerFn, elMountUuid) {
 		if (_eventHandlers[eventUuid]) {
-			log.error(LOG_MESSAGE_PREFIX, "Another event handler with the same UUID was found, fatal failure.  Event did not bind.", eventUuid);
+			log.warn(LOG_MESSAGE_PREFIX, "Another event handler with the same UUID was found.  Event did not bind.  This can be caused by conflict in UUID or cached events.  If the former, fatal error.", eventUuid);
 			return false;
 		}
 
 		setupDelegateEventHandler(eventType);
-		_eventHandlers[eventUuid] = { "eventType": eventType, "eventHandlerFn": eventHandlerFn };
+		_eventHandlers[eventUuid] = { "eventType": eventType, "eventHandlerFn": eventHandlerFn, "elMountUuid": elMountUuid };
 		return true;
 	}
 	function setupDelegateEventHandler(eventType) {
@@ -201,12 +293,11 @@
 		return true;
 	}
 	function delegateEventHandler(e) {
-		var eventUuidAttributeName = SETTINGS.eventPrefix + "-event-uuid";
 		var currentElement = e.target;
 		var stopPropagation = false;
 
 		while (currentElement != null && (stopPropagation === false || stopPropagation === undefined)) {
-			var eventUuidAttribute = currentElement.attributes[eventUuidAttributeName];
+			var eventUuidAttribute = currentElement.attributes[SETTINGS.eventUuidAttributeName];
 
 			if (eventUuidAttribute && eventUuidAttribute.value) {
 				stopPropagation = findEventHandlerAndExecute(eventUuidAttribute.value, e);
@@ -222,7 +313,11 @@
 			return false;
 		}
 
-		var stopPropagation = !currentEventHandler.eventHandlerFn.call({}, eventArgs);
+		var stopPropagation = !currentEventHandler.eventHandlerFn.call({
+			"update": function (newData) {
+				updateMountedComponent(currentEventHandler.elMountUuid, newData);
+			}
+		}, eventArgs);
 
 		log.debug(LOG_MESSAGE_PREFIX, "Event handler found and invoked.", "Event Handler:", currentEventHandler);
 		return stopPropagation;
@@ -245,6 +340,15 @@
 			var r = Math.random()*16|0, v = c == "x" ? r : (r&0x3|0x8);
 			return v.toString(16);
 		});
+	}
+	function mergeObjects(target, source) {
+		if (target && source) {
+			for (var key in source) {
+				target[key] = source[key];
+			}
+		}
+
+		return target;
 	}
 
 	//public functions
