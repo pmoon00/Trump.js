@@ -7,6 +7,7 @@
 	- State for preventing event handling rebinding when it's the same template.  i.e the event uuid shouldn't change if it's already the same.
 		- Ran into difficulties as the events are applied before the cleanup from differences.
 	- State for rerender.
+	- Add ability to have multiple event bound to one element.
 */
 /******* Notes for Trump *******/
 (function () {
@@ -288,7 +289,7 @@
 		}
 	}
 	function createEventListener(eventType) {
-		document.addEventListener(eventType, delegateEventHandler);
+		document.addEventListener(eventType, delegateEventHandler, true);
 		log.debug(LOG_MESSAGE_PREFIX, "Created delegate event handler for type", eventType);
 		return true;
 	}
