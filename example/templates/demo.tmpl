@@ -1,5 +1,5 @@
 <h3>Demo App</h3>
-<label>
+<label trump-event="click:label_click">
 	Example Text Input
-	<input type="text" trump-event="blur:textInput_blur" trump-event="focus:textInput_focus" placeholder="Example Text Input"<%=obj.textInputValue ? 'value="' + textInputValue + '"' : "" %> />
+	<input type="text" trump-event="blur:textInput_blur, focus:textInput_focus, click:textInput_click, mouseover:textInput_mouseover" placeholder="Example Text Input"<%=obj.textInputValue ? 'value="' + textInputValue + '"' : "" %> />
 </label>

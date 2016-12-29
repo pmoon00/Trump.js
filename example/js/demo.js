@@ -24,7 +24,10 @@
 			},
 			"eventHandlers": {
 				"textInput_blur": textInput_blur,
-				"textInput_focus": textInput_focus
+				"textInput_focus": textInput_focus,
+				"textInput_click": textInput_click,
+				"textInput_mouseover": textInput_mouseover,
+				"label_click": label_click
 			}
 		});
 	}
@@ -35,6 +38,16 @@
 	}
 	function textInput_focus(e) {
 		console.log("textInput_focus fired", e);
+	}
+	function textInput_click(e) {
+		console.log("textInput_click fired", e);
+		return false;
+	}
+	function textInput_mouseover(e) {
+		console.log("textInput_mouseover fired", e);
+	}
+	function label_click(e) {
+		console.log("label_click fired", e);
 	}
 
 	//public functions

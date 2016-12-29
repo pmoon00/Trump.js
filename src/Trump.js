@@ -6,8 +6,9 @@
 	TODO:
 	- State for preventing event handling rebinding when it's the same template.  i.e the event uuid shouldn't change if it's already the same.
 		- Ran into difficulties as the events are applied before the cleanup from differences.
-	- State for rerender.
-	- Add ability to have multiple event bound to one element.
+		- More complicated now as an element can have multiple events bound to it.
+	- Make onfocus, and onblur work.
+	- Multiple event handling will need same eventUUID
 */
 /******* Notes for Trump *******/
 (function () {
@@ -230,7 +231,8 @@
 	function applyEvents(frag, eventHandlers, elMountUuid) {
 		var eventAttributeName = SETTINGS.eventAttributeName;
 		var elsThatNeedEventBinding = frag.querySelectorAll("[" + eventAttributeName + "]");
-		var eventAttributeValueRegex = /\w+\:\w+/;
+		var singleEventAttributeValueRegex = /^\s*[a-zA-Z]+\s*\:\s*\w+\s*$/;
+		var multipleEventAttributeValueRegex = /^\s*[a-zA-Z]+\s*\:\s*\w+\s*(,\s*[a-zA-Z]+\s*\:\s*\w+\s*)+$/;
 
 		eventHandlers = eventHandlers || {};
 		log.debug(LOG_MESSAGE_PREFIX, "Elements found for event bindings", elsThatNeedEventBinding);
@@ -238,22 +240,21 @@
 		for (var i = 0, l = elsThatNeedEventBinding.length; i < l; i++) {
 			var el = elsThatNeedEventBinding[i];
 			var eventAttributeValue = el.attributes[eventAttributeName].value;
+			var eventAttributeData = getEventAttributeData(eventAttributeValue);
+			var eventUuid = uuid();
 
-			if (eventAttributeValueRegex.test(eventAttributeValue)) {
-				var eventAttributeData = getEventAttributeData(eventAttributeValue);
-				var foundEventHandler = eventHandlers[eventAttributeData.eventFnName];
-				var eventUuid = null;
+			if (eventAttributeData) {
+				for (var j = 0, lj = eventAttributeData.length; j < lj; j++) {
+					var currentEventAttributeData = eventAttributeData[j];
+					var foundEventHandler = eventHandlers[currentEventAttributeData.eventFnName];
 
-				if (foundEventHandler && typeof (foundEventHandler) == "function") {
-					eventUuid = /*foundEventHandler.uuid ||*/ uuid();
-					addEventHandler(eventUuid, eventAttributeData.eventType, foundEventHandler, elMountUuid);
-					el.setAttribute(SETTINGS.eventUuidAttributeName, eventUuid);
-					//foundEventHandler.uuid = eventUuid;
-				} else {
-					log.warn(LOG_MESSAGE_PREFIX, "Could not find event handler", eventAttributeData.eventFnName, "within event handlers that were passed in.");
+					if (foundEventHandler && typeof (foundEventHandler) == "function") {
+						addEventHandler(eventUuid, currentEventAttributeData.eventType, foundEventHandler, elMountUuid);
+						el.setAttribute(SETTINGS.eventUuidAttributeName, eventUuid);
+					} else {
+						log.warn(LOG_MESSAGE_PREFIX, "Could not find event handler", currentEventAttributeData.eventFnName, "within event handlers that were passed in.");
+					}
 				}
-			} else {
-				console.warn(LOG_MESSAGE_PREFIX, "The element doesn't have the correct syntax for event binding.  It must be formatted with the event type, colon, then name of function.  e.g. click:handler_click.", el);
 			}
 
 			el.removeAttribute(eventAttributeName);
@@ -266,6 +267,27 @@
 		}
 	}
 	function getEventAttributeData(eventAttributeValue) {
+		var singleEventAttributeValueRegex = /^\s*[a-zA-Z]+\s*\:\s*\w+\s*$/;
+		var multipleEventAttributeValueRegex = /^\s*[a-zA-Z]+\s*\:\s*\w+\s*(,\s*[a-zA-Z]+\s*\:\s*\w+\s*)+$/;
+		var returnData = false;
+
+		if (singleEventAttributeValueRegex.test(eventAttributeValue)) {
+			returnData = [getSingleEventAttributeData(eventAttributeValue)];
+		} else if (multipleEventAttributeValueRegex.test(eventAttributeValue)) {
+			var eventAttributeValues = eventAttributeValue.split(",");
+
+			returnData = [];
+
+			for (var i = 0, l = eventAttributeValues.length; i < l; i++) {
+				returnData.push(getSingleEventAttributeData(eventAttributeValues[i]));
+			}
+		} else {
+			log.warn(LOG_MESSAGE_PREFIX, "The element doesn't have the correct syntax for event binding.  It must be formatted with the event type, colon, then name of function.  e.g. click:handler_click.", eventAttributeValue);
+		}
+
+		return returnData;
+	}
+	function getSingleEventAttributeData(eventAttributeValue) {
 		var eventAttributeValueDetails = eventAttributeValue.split(":");
 		var eventFnType = eventAttributeValueDetails[0] || "";
 		var eventFnName = eventAttributeValueDetails[1] || "";
@@ -274,12 +296,23 @@
 	}
 	function addEventHandler(eventUuid, eventType, eventHandlerFn, elMountUuid) {
 		if (_eventHandlers[eventUuid]) {
-			log.warn(LOG_MESSAGE_PREFIX, "Another event handler with the same UUID was found.  Event did not bind.  This can be caused by conflict in UUID or cached events.  If the former, fatal error.", eventUuid);
-			return false;
+			log.warn(LOG_MESSAGE_PREFIX, "Another event handler with the same UUID was found.", eventUuid);
 		}
 
 		setupDelegateEventHandler(eventType);
-		_eventHandlers[eventUuid] = { "eventType": eventType, "eventHandlerFn": eventHandlerFn, "elMountUuid": elMountUuid };
+
+		var foundEventHandler = _eventHandlers[eventUuid];
+		var foundEventHandlerIsArray = Array.isArray(foundEventHandler);
+		var eventObject = { "eventType": eventType, "eventHandlerFn": eventHandlerFn, "elMountUuid": elMountUuid };
+
+		if (typeof (foundEventHandler) == "object" && !foundEventHandlerIsArray) {
+			_eventHandlers[eventUuid] = [foundEventHandler, eventObject];
+		} else if (foundEventHandlerIsArray) {
+			_eventHandlers[eventUuid].push(eventObject);
+		} else {
+			_eventHandlers[eventUuid] = { "eventType": eventType, "eventHandlerFn": eventHandlerFn, "elMountUuid": elMountUuid };
+		}
+
 		return true;
 	}
 	function setupDelegateEventHandler(eventType) {
@@ -309,16 +342,36 @@
 	}
 	function findEventHandlerAndExecute(eventUuid, eventArgs) {
 		var currentEventHandler = _eventHandlers[eventUuid];
+		var currentEventHandlerIsArray = Array.isArray(currentEventHandler);
+		var eventType = eventArgs.type;
 
-		if (!currentEventHandler || currentEventHandler.eventType != eventArgs.type) {
+		if (!currentEventHandler ||
+			(typeof(currentEventHandler) == "object" && !currentEventHandlerIsArray && currentEventHandler.eventType != eventType)
+ 			) {
 			return false;
+		} else if (currentEventHandlerIsArray) {
+			var found = false;
+
+			for (var i = 0, l = currentEventHandler.length; i < l; i++) {
+				var newCurrentEventHandler = currentEventHandler[i];
+
+				if (currentEventHandler[i].eventType == eventType) {
+					currentEventHandler = currentEventHandler[i];
+					found = true;
+					break;
+				}
+			}
+
+			if (!found) {
+				return false;
+			}
 		}
 
-		var stopPropagation = !currentEventHandler.eventHandlerFn.call({
+		var stopPropagation = currentEventHandler.eventHandlerFn.call({
 			"update": function (newData) {
 				updateMountedComponent(currentEventHandler.elMountUuid, newData);
 			}
-		}, eventArgs);
+		}, eventArgs) == false;
 
 		log.debug(LOG_MESSAGE_PREFIX, "Event handler found and invoked.", "Event Handler:", currentEventHandler);
 		return stopPropagation;
