@@ -26,6 +26,7 @@
 				"textInput_blur": textInput_blur,
 				"textInput_focus": textInput_focus,
 				"textInput_click": textInput_click,
+				"textInput_keyup": textInput_keyup,
 				"textInput_mouseover": textInput_mouseover,
 				"label_click": label_click
 			}
@@ -41,6 +42,11 @@
 	}
 	function textInput_click(e) {
 		console.log("textInput_click fired", e);
+		return false;
+	}
+	function textInput_keyup(e) {
+		console.log("textInput_keyup fired", e);
+		this.update({ "data": { "textInputValue": document.getElementById("txtInput").value } });
 		return false;
 	}
 	function textInput_mouseover(e) {
