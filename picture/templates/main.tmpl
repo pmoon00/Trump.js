@@ -1,0 +1,10 @@
+<p>Type in a url for an image and click the load button to add the image.</p>
+<div id="wrapperInputControls">
+	<label>Image URL:
+		<input id="txtUrl" type="text" trump-event="keypress:txtUrl_keypress"<%=obj.disabled ? ' disabled="disabled"' : "" %>></input>
+	</label>
+	<input id="btnAddImage" type="button" value="Add Image" trump-event="click:btnAddImage_click"<%=obj.disabled ? ' disabled="disabled"' : "" %> />
+</div>
+<div id="wrapperImageControls">
+	<%=SAL.Template.render("tmplImageControl", { "images": obj.pictures || {} }) %>
+</div>

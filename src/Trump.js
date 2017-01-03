@@ -102,19 +102,27 @@
 		if (currentElMountUuid && _mountedElementData[elMountUuid]) {
 			delete _mountedElementData[elMountUuid];
 		}
-
+		
 		var elMountUuid = uuid();
 		var mountedElementData = _mountedElementData[elMountUuid] = {
 			"mountElementID": mountElementID,
 			"templateID": templateID,
 			"templateData": templateData
 		};
+		var eventHandlers = mountedElementData.templateData.eventHandlers;
+
+		//CLEAN EVENT HANDLERS UUIDs
+		for (var key in eventHandlers) {
+			if (eventHandlers[key].uuid) {
+				delete eventHandlers[key].uuid;
+			}
+		}
 
 		elMount.setAttribute(mountElementUuidAttributeName, elMountUuid);
 
 		var templateFragHTML = SAL.Template.render(templateID, mountedElementData.templateData.data || {});
 
-		applyChangesToDOM(elMount, templateFragHTML, mountedElementData.templateData.eventHandlers, elMountUuid);
+		applyChangesToDOM(elMount, templateFragHTML, eventHandlers, elMountUuid);
 		return { 
 			"update": function (newData) {
 				updateMountedComponent(elMountUuid, newData);
@@ -249,7 +257,9 @@
 					var foundEventHandler = eventHandlers[currentEventAttributeData.eventFnName];
 
 					if (foundEventHandler && typeof (foundEventHandler) == "function") {
+						eventUuid = foundEventHandler.uuid || eventUuid;
 						addEventHandler(eventUuid, currentEventAttributeData.eventType, foundEventHandler, elMountUuid);
+						foundEventHandler.uuid = eventUuid;
 						el.setAttribute(SETTINGS.eventUuidAttributeName, eventUuid);
 					} else {
 						log.warn(LOG_MESSAGE_PREFIX, "Could not find event handler", currentEventAttributeData.eventFnName, "within event handlers that were passed in.");
@@ -295,8 +305,10 @@
 		return { "eventType": eventFnType.trim().toLowerCase(), "eventFnName": eventFnName.trim() };
 	}
 	function addEventHandler(eventUuid, eventType, eventHandlerFn, elMountUuid) {
-		if (_eventHandlers[eventUuid]) {
-			log.warn(LOG_MESSAGE_PREFIX, "Another event handler with the same UUID was found.", eventUuid);
+		//TODO: Still not quite right.  Can only technically have one event handler per event type.
+		if (_eventHandlers[eventUuid] && _eventHandlers[eventUuid].eventType == eventType) {
+			log.warn(LOG_MESSAGE_PREFIX, "Another event handler with the same UUID and event type was found.  This event will not be bound...", eventUuid);
+			return false;
 		}
 
 		setupDelegateEventHandler(eventType);
@@ -334,13 +346,13 @@
 			var eventUuidAttribute = currentElement.attributes[SETTINGS.eventUuidAttributeName];
 
 			if (eventUuidAttribute && eventUuidAttribute.value) {
-				stopPropagation = findEventHandlerAndExecute(eventUuidAttribute.value, e);
+				stopPropagation = findEventHandlerAndExecute(eventUuidAttribute.value, e, currentElement);
 			}
 
 			currentElement = currentElement.parentElement;
 		}
 	}
-	function findEventHandlerAndExecute(eventUuid, eventArgs) {
+	function findEventHandlerAndExecute(eventUuid, eventArgs, currentTarget) {
 		var currentEventHandler = _eventHandlers[eventUuid];
 		var currentEventHandlerIsArray = Array.isArray(currentEventHandler);
 		var eventType = eventArgs.type;
@@ -367,11 +379,11 @@
 			}
 		}
 
-		var stopPropagation = currentEventHandler.eventHandlerFn.call({
-			"update": function (newData) {
-				updateMountedComponent(currentEventHandler.elMountUuid, newData);
-			}
-		}, eventArgs) == false;
+		currentTarget.update = function (newData) {
+			updateMountedComponent(currentEventHandler.elMountUuid, newData);
+		};
+
+		var stopPropagation = currentEventHandler.eventHandlerFn.call(currentTarget, eventArgs) == false;
 
 		log.debug(LOG_MESSAGE_PREFIX, "Event handler found and invoked.", "Event Handler:", currentEventHandler);
 		return stopPropagation;

@@ -1,0 +1,21 @@
+<% for (var key in images) {
+	var image = images[key];
+	var boxMask = image.boxMask;
+	var boxMaskStyle = "width:" + boxMask.width + "px;height:" + boxMask.height + "px;transform:translate3d(" + boxMask.startX + "px," + boxMask.startY + "px, 0);";
+%>
+<div class="image-control-wrapper" image-id="<%=key %>">
+	<h4><%=image.name %></h4>
+	<div class="image-wrapper" trump-event="mousedown:imageControl_mousedown,mouseup:imageControl_mouseup,mousemove:imageControl_mousemove" image-id="<%=key %>">
+		<img src="<%=image.url %>" />
+		<span class="image-box-mask" image-id="<%=key %>" style="<%=boxMaskStyle %>"></span>
+	</div>
+	<code>
+		Image Original X: <%=image.boxMask.x %>
+		Image Original Y: <%=image.boxMask.y %>
+		Image Start X: <%=image.boxMask.startX %>
+		Image Start Y: <%=image.boxMask.startY %>
+		Image Width: <%=image.boxMask.width %>
+		Image Height: <%=image.boxMask.height %>
+	</code>
+</div>
+<% } %>
