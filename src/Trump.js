@@ -12,6 +12,7 @@
 */
 /******* Notes for Trump *******/
 (function () {
+	"use strict";
 	var _trump = {};
 	var _eventHandlers = {};
 	var _delegateEventHandlerTypes = {};

@@ -94,7 +94,7 @@
 		}
 
 		disableInput();
-		isValidImage(imageUrl, null, function (imageUrl, status) {
+		isValidImage(imageUrl, null, function (imageUrl, status, imageWidth, imageHeight) {
 			console.log(imageUrl, status);
 			disableInput(true);
 
@@ -102,7 +102,7 @@
 				return false;
 			}
 
-			addImageControl(imageUrl);
+			addImageControl(imageUrl, imageWidth, imageHeight);
 		});
 	}
 	function isValidImage(imageUrl, timeout, callback) {
@@ -120,7 +120,7 @@
 		img.onload = function() {
 			if (!timedOut) {
 				clearTimeout(timer);
-				callback(imageUrl, "success");
+				callback(imageUrl, "success", img.naturalWidth, img.naturalHeight);
 			}
 		};
 		img.src = imageUrl;
@@ -132,7 +132,7 @@
 			callback(imageUrl, "timeout");
 		}, timeout); 
 	}
-	function addImageControl(imageUrl) {
+	function addImageControl(imageUrl, imageWidth, imageHeight) {
 		_state.pictures = _state.pictures || {};
 		
 		var imageUrlHash = imageUrl.hashCode();
@@ -141,9 +141,13 @@
 			return false;
 		}
 
+		console.log(imageWidth, imageHeight);
+
 		_state.pictures[imageUrlHash] = {
 			"url": imageUrl,
 			"name": imageUrl.substr(imageUrl.lastIndexOf("/") + 1),
+			"width": imageWidth,
+			"height": imageHeight,
 			"boxMask": {
 				"x": 0,
 				"y": 0,
@@ -160,6 +164,9 @@
 			return false;
 		}
 
+		var topOffset = document.body.scrollTop;
+		var leftOffset = document.body.scrollLeft;
+
 		for (var key in o) {
 			switch (key) {
 				case "x":
@@ -170,18 +177,18 @@
 					var prop = "x";
 					
 					if (o[key] < 0) {
-						_state.pictures[imageID].boxMask.startX = _state.pictures[imageID].boxMask.x + o[key];
+						_state.pictures[imageID].boxMask.startX = _state.pictures[imageID].boxMask.x + o[key] + leftOffset;
 					} else {
-						_state.pictures[imageID].boxMask.startX = _state.pictures[imageID].boxMask.x;
+						_state.pictures[imageID].boxMask.startX = _state.pictures[imageID].boxMask.x + leftOffset;
 					}
 
 					_state.pictures[imageID].boxMask.width = Math.abs(o[key]);
 					break;
 				case "height":
 					if (o[key] < 0) {
-						_state.pictures[imageID].boxMask.startY = _state.pictures[imageID].boxMask.y + o[key];
+						_state.pictures[imageID].boxMask.startY = _state.pictures[imageID].boxMask.y + o[key] + topOffset;
 					} else {
-						_state.pictures[imageID].boxMask.startY = _state.pictures[imageID].boxMask.y;
+						_state.pictures[imageID].boxMask.startY = _state.pictures[imageID].boxMask.y + topOffset;
 					}
 
 					_state.pictures[imageID].boxMask.height = Math.abs(o[key]);

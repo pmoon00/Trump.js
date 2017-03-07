@@ -17,5 +17,28 @@
 		Image Width: <%=image.boxMask.width %>
 		Image Height: <%=image.boxMask.height %>
 	</code>
+	<%
+		var top = Math.floor((image.boxMask.startY / image.height) * 100) / 100;
+		var left = Math.floor((image.boxMask.startX / image.width) * 100) / 100;
+		var right = Math.floor(((image.boxMask.startX + image.boxMask.width) / image.width) * 100) / 100;
+		var bottom = Math.floor(((image.boxMask.startY + image.boxMask.height) / image.height) * 100) / 100;
+		var combo = top + ", " + left + ", " + bottom + ", " + right;
+	%>
+	<p>
+		<code>
+			"data": {
+				"image": {
+					"url": "<%=image.url %>",
+					"crop": [<%=combo %>]
+				},
+				"concepts":[
+					{
+						"id": "boscoe",
+						"value": true
+					}
+				]
+			}
+		</code>
+	</p>
 </div>
 <% } %>
